@@ -1,10 +1,10 @@
 #include <Wire.h>
 #include <hd44780.h>
 #include <hd44780ioClass/hd44780_I2Cexp.h>
-#include <queue>
-#include <vector>
-#include <utility>
 #include <cstdint>
+
+
+
 
 // ============================================================
 // CONFIGURATION
@@ -67,108 +67,7 @@ bool getPixel(int x, int y) {
   return framebuffer[y][x] != 0;
 }
 
-// ============================================================
-// DRAWING PRIMITIVES
-// ============================================================
 
-void drawLine(int x0, int y0, int x1, int y1) {
-
-  int dx = abs(x1 - x0);
-  int dy = abs(y1 - y0);
-
-  int sx = x0 < x1 ? 1 : -1;
-  int sy = y0 < y1 ? 1 : -1;
-
-  int err = dx - dy;
-
-  while (true) {
-
-    setPixel(x0, y0);
-
-    if (x0 == x1 && y0 == y1)
-      break;
-
-    int e2 = 2 * err;
-
-    if (e2 > -dy) {
-      err -= dy;
-      x0 += sx;
-    }
-
-    if (e2 < dx) {
-      err += dx;
-      y0 += sy;
-    }
-  }
-}
-
-void drawRect(int x, int y, int w, int h) {
-
-  if (w <= 0 || h <= 0) return;
-
-  drawLine(x, y, x + w - 1, y);
-  drawLine(x, y + h - 1, x + w - 1, y + h - 1);
-
-  drawLine(x, y, x, y + h - 1);
-  drawLine(x + w - 1, y, x + w - 1, y + h - 1);
-}
-
-void fillRect(int x, int y, int w, int h) {
-
-  if (w <= 0 || h <= 0) return;
-
-  for (int py = y; py < y + h; py++) {
-    for (int px = x; px < x + w; px++) {
-      setPixel(px, py);
-    }
-  }
-}
-
-void drawCircle(int cx, int cy, int radius) {
-
-  int x = radius;
-  int y = 0;
-  int err = 1 - radius;
-
-  while (x >= y) {
-
-    setPixel(cx + x, cy + y);
-    setPixel(cx + y, cy + x);
-    setPixel(cx - y, cy + x);
-    setPixel(cx - x, cy + y);
-
-    setPixel(cx - x, cy - y);
-    setPixel(cx - y, cy - x);
-    setPixel(cx + y, cy - x);
-    setPixel(cx + x, cy - y);
-
-    y++;
-
-    if (err < 0) {
-      err += 2 * y + 1;
-    } else {
-      x--;
-      err += 2 * (y - x) + 1;
-    }
-  }
-}
-
-// ============================================================
-// BITMAP DRAWING
-// ============================================================
-
-void drawBitmap5x8(int x, int y, const uint8_t* bitmap) {
-
-  for (int row = 0; row < 8; row++) {
-
-    for (int col = 0; col < 5; col++) {
-
-      bool pixel = bitmap[row] & (1 << (4 - col));
-
-      setPixel(x + col, y + row, pixel);
-    }
-  }
-}
 
 // ============================================================
 // PATTERN EXTRACTION
@@ -235,14 +134,126 @@ void initLCD() {
     }
   }
 
-  lcd.backlight();
+  //lcd.backlight();
   lcd.clear();
 }
 
 
 //**************************************************************
+//Data structure libs
+
+
+
+template<typename T>
+class Queue {
+private:
+  T a[SCREEN_WIDTH* SCREEN_HEIGHT];
+  size_t n = SCREEN_WIDTH* SCREEN_HEIGHT;
+  int f = -1;
+  int b = -1;
+public:
+  size_t size() {
+    return (b - f+ n)% n  + (front != -1 && f == b) * n;
+  }
+  void push(T x){
+    if(f == -1){
+      f = 0;
+      b = 0;
+    }else if(f==b){
+      Serial.println("overflow");
+      return;
+    }
+    a[b] = x;
+    b++;
+    b%= n;
+  }
+  void pop(){
+    if(f == -1){
+      Serial.println("underflow");
+    }
+    f++;
+    f%n;
+    if(f==b){
+      f == -1;
+      b== -1;
+    }
+
+  }
+  T front(){
+    if(f == -1){
+      Serial.println("underflow");
+    }
+    return a[f];
+  }
+  bool empty(){
+    return f == -1;
+  }
+  T back(){
+    if (f  == -1);
+      Serial.println("underflow");
+    return a[(b-1)%n];
+  }
+  void clear(){
+    f = -1;
+    b =-1;
+  }
+};
+
+template<typename T>
+class PixelVector {
+private:
+  T a[SCREEN_WIDTH* SCREEN_HEIGHT];
+  size_t cap = SCREEN_WIDTH* SCREEN_HEIGHT;
+  size_t n = 0;
+public:
+  size_t size() {
+    return n;
+  }
+  void push_back(T x){
+    if(n == cap) {
+      Serial.println("overflow");
+      return;
+    }
+    a[n] = x;
+    n++;
+    
+  }
+  void pop_back(){
+    if(n == 0){
+      Serial.println("underflow");
+      return;
+    }
+    n--;
+  }
+  T get(size_t i){
+    return a[i];
+  }
+  T set(size_t i, T x){
+    a[i] = x;
+  }
+  void clear(){
+    n = 0;
+  }
+};
+
+struct pair{
+  uint8_t first;
+  uint8_t second;
+  bool operator==(const pair& other) const{
+    return ( other.first == first) && (second == other.second);
+  }
+};
+
+
+//**************************************************************
+
+
+//**************************************************************
 //Game code
-using coord = std::pair<uint8_t, uint8_t>;
+using coord = pair;
+int last_pause = 0;
+bool wait_on_gameover = 1;
+int pause_duration = 0;
 
 unsigned long last_update = 0;
 int dt = 240;
@@ -251,25 +262,28 @@ coord food = { 16, 8 };
 int dir = 2;
 coord directions[] = { { 1, 0 }, { 1, 2 }, { 0, 1 }, { 2, 1 } };
 // UP DOWN LEFT RIGHT
-int game_controls[] = { 2, 3, 4, 5 };
-int control_reverse[] = { 1, 0, 3, 2 };
+const int game_controls[] = { 2, 3, 4, 5 };
+const int control_reverse[] = { 1, 0, 3, 2 };
 
-std::queue<coord> snake;
+Queue<coord> snake;
+
+void pause(int t) {
+  last_pause = millis();
+  pause_duration = t;
+}
 
 int16_t indices[SCREEN_WIDTH][SCREEN_HEIGHT];
-std::vector<coord> food_space;
+PixelVector<coord> food_space;
 int proposed_dir = 2;
 
 int score = 0;
 
 void gameSetup() {
   score = 0;
-  food_space.reserve(SCREEN_WIDTH * SCREEN_HEIGHT);
-
+  clearPixels();
+  
+  snake.clear();
   food_space.clear();
-  while (!snake.empty()) {
-    snake.pop();
-  }
   memset(indices, -1, sizeof(indices));
   for (int x = 0; x < SCREEN_WIDTH; x++) {
     for (int y = 0; y < SCREEN_HEIGHT; y++) {
@@ -277,15 +291,17 @@ void gameSetup() {
       food_space.push_back({ x, y });
     }
   }
-  food = { 16, 8 };
+  wait_on_gameover = true;
 
   addtoSnake(53, 8);
   addtoSnake(52, 8);
   addtoSnake(51, 8);
   addtoSnake(50, 8);
+  spawnFood();
   dir = 2;
   proposed_dir = dir;
   last_update = millis();
+  pause(1000);
 }
 
 void gameOver() {
@@ -307,35 +323,21 @@ void gameOver() {
     while (millis() - lastdelay <= 1000) {
       for (int i : game_controls) {
         if (digitalRead(i) == LOW) {
-          out = true;
+          lcd.clear();
+          return;
         }
-        if (out) {
-          break;
-        }
-      }
-      if (out) {
-        break;
       }
     }
-    if (out)
-      break;
     lcd.clear();
     lastdelay = millis();
     while (millis() - lastdelay <= 300) {
       for (int i : game_controls) {
         if (digitalRead(i) == LOW) {
-          out = true;
+          lcd.clear();
+          return;
         }
-        if (out) {
-          break;
-        }
-      }
-      if (out) {
-        break;
       }
     }
-    if (out)
-      break;
   }
 }
 
@@ -358,48 +360,34 @@ void gameSplash() {
     while (millis() - lastdelay <= 1000) {
       for (int i : game_controls) {
         if (digitalRead(i) == LOW) {
-          out = true;
+          lcd.clear();
+          return;
         }
-        if (out) {
-          break;
-        }
-      }
-      if (out) {
-        break;
       }
     }
-    if (out)
-      break;
     lcd.clear();
     lastdelay = millis();
     while (millis() - lastdelay <= 300) {
       for (int i : game_controls) {
         if (digitalRead(i) == LOW) {
-          out = true;
+          lcd.clear();
+          return;
         }
-        if (out) {
-          break;
-        }
-      }
-      if (out) {
-        break;
       }
     }
-    if (out)
-      break;
   }
-
-  delay(200);
 }
 
 void addtoSnake(uint8_t x, uint8_t y) {
   int idx = indices[x][y];
   int last_idx = food_space.size() - 1;
-  coord last = food_space[last_idx];
-  food_space[idx] = last;
+  coord last = food_space.get(last_idx);
+  food_space.set(idx, last);
   indices[last.first][last.second] = idx;
   indices[x][y] = -1;
   food_space.pop_back();
+
+  setPixel(x, y);
 
 
   snake.push({ x, y });
@@ -409,17 +397,19 @@ void removefromSnake() {
   coord t = snake.front();
   indices[t.first][t.second] = food_space.size();
   food_space.push_back(t);
+  setPixel(t.first, t.second, false);
   snake.pop();
 }
 
-int now = 0;
-bool wait = 1;
 
 void spawnFood() {
-  food = food_space[random(food_space.size())];
+  setPixel(food.first, food.second, false);
+  food = food_space.get(random(food_space.size()));
+  setPixel(food.first, food.second);
 }
 
 void updateGame() {
+  if (millis() - last_pause <= pause_duration) return;
   for (int i = 0; i < 4; i++)
     if (digitalRead(game_controls[i]) == LOW)
       proposed_dir = i;
@@ -442,18 +432,16 @@ void updateGame() {
       next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
     }
     if (indices[next.first][next.second] == -1) {
-      if(wait){
-        now = millis();
-        wait = 0;
-      }
-      if (millis() - now >= 1500) {
+      if (wait_on_gameover) {
+        pause(1500);
+        wait_on_gameover = false;
+      } else {
         gameOver();
         gameSetup();
-        wait = 1;
       }
     } else if (next == food) {
-      addtoSnake(next.first, next.second);
       spawnFood();
+      addtoSnake(next.first, next.second);
       score++;
     } else {
       addtoSnake(next.first, next.second);
@@ -463,17 +451,7 @@ void updateGame() {
 }
 
 
-void DrawGame() {
-  clearPixels();
-  setPixel(food.first, food.second);
-  int t = snake.size();
-  while (t-- > 0) {
-    coord t = snake.front();
-    setPixel(t.first, t.second);
-    snake.push(t);
-    snake.pop();
-  }
-}
+
 
 
 //***************************************************************
@@ -483,6 +461,7 @@ void DrawGame() {
 // ============================================================
 
 void setup() {
+  
   for (int i : game_controls)
     pinMode(i, INPUT_PULLUP);
 
@@ -498,11 +477,12 @@ void setup() {
 // ============================================================
 
 void loop() {
+  //Serial.println("Game Running");
   updateGame();
   unsigned long now = millis();
   if (now - previousBatchTime >= BATCH_INTERVAL) {
+    //Serial.println(freeMemory());
     previousBatchTime = now;
-    DrawGame();
     renderBatch(currentBatch);
     currentBatch = (currentBatch + 1) % BATCH_COUNT;
   }
