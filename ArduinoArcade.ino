@@ -147,100 +147,95 @@ void initLCD() {
 template<typename T>
 class Queue {
 private:
-  T a[SCREEN_WIDTH* SCREEN_HEIGHT];
-  size_t n = SCREEN_WIDTH* SCREEN_HEIGHT;
+  T a[SCREEN_WIDTH * SCREEN_HEIGHT];
+  size_t n = SCREEN_WIDTH * SCREEN_HEIGHT;
   int f = -1;
   int b = -1;
 public:
   size_t size() {
-    return (b - f+ n)% n  + (front != -1 && f == b) * n;
+    return (b - f + n) % n + (f != -1 && f == b) * n;
   }
-  void push(T x){
-    if(f == -1){
+  void push(T x) {
+    if (f == -1) {
       f = 0;
       b = 0;
-    }else if(f==b){
+    } else if (f == b) {
       Serial.println("overflow");
       return;
     }
     a[b] = x;
     b++;
-    b%= n;
+    b %= n;
   }
-  void pop(){
-    if(f == -1){
+  void pop() {
+    if (f == -1) {
       Serial.println("underflow");
     }
     f++;
-    f%n;
-    if(f==b){
-      f == -1;
-      b== -1;
+    f %= n;
+    if (f == b) {
+      f = -1;
+      b = -1;
     }
-
   }
-  T front(){
-    if(f == -1){
+  T front() {
+    if (f == -1)
       Serial.println("underflow");
-    }
+
     return a[f];
   }
-  bool empty(){
-    return f == -1;
-  }
-  T back(){
-    if (f  == -1);
+  T back() {
+    if (f == -1)
       Serial.println("underflow");
-    return a[(b-1)%n];
+    return a[(b + n - 1) % n];
   }
-  void clear(){
+  void clear() {
     f = -1;
-    b =-1;
+    b = -1;
   }
 };
 
 template<typename T>
 class PixelVector {
 private:
-  T a[SCREEN_WIDTH* SCREEN_HEIGHT];
-  size_t cap = SCREEN_WIDTH* SCREEN_HEIGHT;
+  T a[SCREEN_WIDTH * SCREEN_HEIGHT];
+  size_t cap = SCREEN_WIDTH * SCREEN_HEIGHT;
   size_t n = 0;
 public:
   size_t size() {
     return n;
   }
-  void push_back(T x){
-    if(n == cap) {
+  void push_back(T x) {
+    if (n == cap) {
       Serial.println("overflow");
       return;
     }
     a[n] = x;
     n++;
-    
   }
-  void pop_back(){
-    if(n == 0){
+  void pop_back() {
+    if (n == 0) {
       Serial.println("underflow");
       return;
     }
     n--;
   }
-  T get(size_t i){
+  T get(size_t i) {
     return a[i];
   }
-  T set(size_t i, T x){
+  void set(size_t i, T x) {
     a[i] = x;
   }
-  void clear(){
+  void clear() {
     n = 0;
   }
 };
 
-struct pair{
+struct pair {
   uint8_t first;
   uint8_t second;
-  bool operator==(const pair& other) const{
-    return ( other.first == first) && (second == other.second);
+  bool operator==(const pair& other) const {
+    return (other.first == first) && (second == other.second);
   }
 };
 
@@ -253,6 +248,7 @@ struct pair{
 using coord = pair;
 int last_pause = 0;
 bool wait_on_gameover = 1;
+
 int pause_duration = 0;
 
 unsigned long last_update = 0;
@@ -280,8 +276,9 @@ int score = 0;
 
 void gameSetup() {
   score = 0;
+  lcd.clear();
   clearPixels();
-  
+
   snake.clear();
   food_space.clear();
   memset(indices, -1, sizeof(indices));
@@ -305,10 +302,11 @@ void gameSetup() {
 }
 
 void gameOver() {
-  String x = "GAME OVER";
-  String scr = "Score: " + String(score);
-  int space_x = (LCD_COLS - x.length() + 1) / 2;
-  int space_scr = (LCD_COLS - scr.length() + 1) / 2;
+  char x[] = "GAME OVER";
+  char scr[20] = "Score: ";
+  itoa(score, scr + strlen(scr), 10);
+  int space_x = (LCD_COLS - strlen(x) + 1) / 2;
+  int space_scr = (LCD_COLS - strlen(scr) + 1) / 2;
 
   unsigned long lastdelay = 0;
 
@@ -342,10 +340,48 @@ void gameOver() {
 }
 
 void gameSplash() {
-  String x = "SNAKE";
-  String scr = "GAME!";
-  int space_x = (LCD_COLS - x.length() + 1) / 2;
-  int space_scr = (LCD_COLS - scr.length() + 1) / 2;
+  char x[] = "SNAKE";
+  char scr[] = "GAME!";
+  int space_x = (LCD_COLS - strlen(x) + 1) / 2;
+  int space_scr = (LCD_COLS - strlen(scr) + 1) / 2;
+
+  unsigned long lastdelay = 0;
+
+  bool out = false;
+  while (true) {
+    lcd.clear();
+    lcd.setCursor(space_x, 0);
+    lcd.print(x);
+    lcd.setCursor(space_scr, 1);
+    lcd.print(scr);
+    lastdelay = millis();
+    while (millis() - lastdelay <= 1000) {
+      for (int i : game_controls) {
+        if (digitalRead(i) == LOW) {
+          lcd.clear();
+          return;
+        }
+      }
+    }
+    lcd.clear();
+    lastdelay = millis();
+    while (millis() - lastdelay <= 300) {
+      for (int i : game_controls) {
+        if (digitalRead(i) == LOW) {
+          lcd.clear();
+          return;
+        }
+      }
+    }
+  }
+}
+
+
+void win() {
+  char x[] = "YOU";
+  char scr[] = "WIN!";
+  int space_x = (LCD_COLS - strlen(x) + 1) / 2;
+  int space_scr = (LCD_COLS - strlen(scr) + 1) / 2;
 
   unsigned long lastdelay = 0;
 
@@ -402,10 +438,11 @@ void removefromSnake() {
 }
 
 
-void spawnFood() {
-  setPixel(food.first, food.second, false);
+bool spawnFood() {
+  if (food_space.size() == 0) return false;
   food = food_space.get(random(food_space.size()));
   setPixel(food.first, food.second);
+  return true;
 }
 
 void updateGame() {
@@ -431,7 +468,12 @@ void updateGame() {
       next.first = (SCREEN_WIDTH + next.first - 1) % SCREEN_WIDTH;
       next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
     }
-    if (indices[next.first][next.second] == -1) {
+    if (food_space.size() == 0) {
+      win();
+      gameSetup();
+      return;
+    }
+    if (indices[next.first][next.second] == -1 && !(next == snake.front())) {
       if (wait_on_gameover) {
         pause(1500);
         wait_on_gameover = false;
@@ -440,12 +482,13 @@ void updateGame() {
         gameSetup();
       }
     } else if (next == food) {
-      spawnFood();
       addtoSnake(next.first, next.second);
+      if (!spawnFood())
+        pause(3000);
       score++;
     } else {
-      addtoSnake(next.first, next.second);
       removefromSnake();
+      addtoSnake(next.first, next.second);
     }
   }
 }
@@ -461,7 +504,7 @@ void updateGame() {
 // ============================================================
 
 void setup() {
-  
+
   for (int i : game_controls)
     pinMode(i, INPUT_PULLUP);
 
