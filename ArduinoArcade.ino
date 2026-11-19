@@ -1,6 +1,5 @@
-#include <Wire.h>
-#include <hd44780.h>
-#include <hd44780ioClass/hd44780_I2Cexp.h>
+
+#include <LiquidCrystal.h>
 #include <cstdint>
 
 
@@ -10,7 +9,9 @@
 // CONFIGURATION
 // ============================================================
 
-hd44780_I2Cexp lcd;
+LiquidCrystal lcd(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+
+#define backlight_pin 13
 
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 16
@@ -26,7 +27,7 @@ hd44780_I2Cexp lcd;
 #define BATCH_SIZE 8
 #define BATCH_COUNT 4
 
-#define BATCH_INTERVAL 60
+#define BATCH_INTERVAL 25
 
 // ============================================================
 // FRAMEBUFFER
@@ -41,7 +42,7 @@ uint8_t char_buffer[LCD_COLS][LCD_ROWS][CELL_HEIGHT];
 
 unsigned long last_render = 0;
 uint8_t currentBatch = 0;
-bool backlight = true;
+bool backlight_state = true;
 // ============================================================
 // PIXEL OPERATIONS
 // ============================================================
@@ -114,16 +115,18 @@ void renderBatch(int batch) {
 // ============================================================
 
 
-
+void backlight(){
+  digitalWrite(backlight_pin, HIGH);
+}
+void noBacklight(){
+  digitalWrite(backlight_pin, LOW);
+}
 
 void initLCD() {
 
-  int status = lcd.begin(LCD_COLS, LCD_ROWS);
+  lcd.begin(LCD_COLS, LCD_ROWS);
 
-  if (status != 0) {
-
-    Serial.println("LCD initialization failed!");
-  }
+  
 
   lcd.clear();
 }
@@ -253,7 +256,7 @@ uint8_t proposed_dir;
 coord directions[] = { { 1, 0 }, { 1, 2 }, { 0, 1 }, { 2, 1 } };
 
 // UP DOWN LEFT RIGHT
-const int game_controls[] = { 2, 3, 4, 5 };
+const int game_controls[] = { A0,A1, A2, A3};
 const int control_reverse[] = { 1, 0, 3, 2 };
 
 
@@ -492,20 +495,20 @@ void updateGame() {
   if (millis() - last_pause <= pause_duration) {
     if (millis() - last_backlight_change < 50 || !pause_flicker) return;
     last_backlight_change = millis();
-    if (backlight) {
-      lcd.noBacklight();
-      backlight = false;
+    if (backlight_state) {
+      noBacklight();
+      backlight_state = false;
     } else {
 
-      backlight = true;
-      lcd.backlight();
+      backlight_state = true;
+      backlight();
     }
     return;
   }
   pause_flicker = false;
-  if (!backlight) {
-    backlight = true;
-    lcd.backlight();
+  if (!backlight_state) {
+    backlight_state = true;
+    backlight();
   }
 
 
@@ -572,13 +575,14 @@ void updateGame() {
 void setup() {
   for (int i : game_controls)
     pinMode(i, INPUT_PULLUP);
+  pinMode(backlight_pin, OUTPUT);
 
   Serial.begin(9600);
 
   initLCD();
   clearPixels();
-  lcd.backlight();
-  backlight = true;
+  backlight();
+  backlight_state = true;
   last_backlight_change = millis();
   pause_flicker = false;
   gameSplash();
