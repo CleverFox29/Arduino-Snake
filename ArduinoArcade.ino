@@ -26,19 +26,20 @@ hd44780_I2Cexp lcd;
 #define BATCH_SIZE 8
 #define BATCH_COUNT 4
 
-#define BATCH_INTERVAL 80
+#define BATCH_INTERVAL 60
 
 // ============================================================
 // FRAMEBUFFER
 // ============================================================
 
-uint8_t framebuffer[SCREEN_HEIGHT][SCREEN_WIDTH];
+
+uint8_t char_buffer[LCD_COLS][LCD_ROWS][CELL_HEIGHT];
 
 // ============================================================
 // RENDERER STATE
 // ============================================================
 
-unsigned long previousBatchTime = 0;
+unsigned long last_render = 0;
 uint8_t currentBatch = 0;
 bool backlight = true;
 // ============================================================
@@ -46,7 +47,7 @@ bool backlight = true;
 // ============================================================
 
 void clearPixels() {
-  memset(framebuffer, 0, sizeof(framebuffer));
+  memset(char_buffer, 0, sizeof(char_buffer));
 }
 
 void setPixel(int x, int y, bool state = true) {
@@ -55,17 +56,18 @@ void setPixel(int x, int y, bool state = true) {
     return;
   }
 
-  framebuffer[y][x] = state ? 1 : 0;
+  uint8_t charX = x / CELL_WIDTH;
+  uint8_t charY = y / CELL_HEIGHT;
+  uint8_t x_offset = x % CELL_WIDTH;
+  uint8_t y_offset = y % CELL_HEIGHT;
+  uint8_t mask = 1 << (CELL_WIDTH - 1 - x_offset);
+  if (state)
+    char_buffer[charX][charY][y_offset] |= mask;
+  else
+    char_buffer[charX][charY][y_offset] &= ~mask;
 }
 
-bool getPixel(int x, int y) {
 
-  if (x < 0 || x >= SCREEN_WIDTH || y < 0 || y >= SCREEN_HEIGHT) {
-    return false;
-  }
-
-  return framebuffer[y][x] != 0;
-}
 
 
 
@@ -73,19 +75,10 @@ bool getPixel(int x, int y) {
 // PATTERN EXTRACTION
 // ============================================================
 
-void extractPattern(int cell, uint8_t bitmap[CELL_HEIGHT]) {
+uint8_t* getCellBitmap(int cell) {
   int cellX = cell % LCD_COLS;
   int cellY = cell / LCD_COLS;
-  for (int row = 0; row < CELL_HEIGHT; ++row) {
-    uint8_t rowBits = 0;
-    for (int col = 0; col < CELL_WIDTH; ++col) {
-      if (getPixel(cellX * CELL_WIDTH + col,
-                   cellY * CELL_HEIGHT + row)) {
-        rowBits |= (uint8_t)(1U << (CELL_WIDTH - 1 - col));
-      }
-    }
-    bitmap[row] = rowBits;
-  }
+  return char_buffer[cellX][cellY];
 }
 
 // ============================================================
@@ -96,18 +89,20 @@ void renderBatch(int batch) {
 
   // Clear DDRAM before changing CGRAM so earlier custom glyph references
   // cannot turn into visible stripes when their shared slots are redefined.
-  lcd.clear();
+  //lcd.clear();
+  int prev_batch = (batch + BATCH_COUNT - 1) % BATCH_COUNT;
+  int firstcell_of_prev = prev_batch * BATCH_SIZE;
+  int firstCell = batch * BATCH_SIZE;
+
   for (int slot = 0; slot < BATCH_SIZE; slot++) {
-    uint8_t bitmap[CELL_HEIGHT];
-    extractPattern(batch * BATCH_SIZE + slot, bitmap);
-    lcd.createChar(slot, bitmap);
+    lcd.setCursor((firstcell_of_prev + slot) % LCD_COLS, (firstcell_of_prev + slot) / LCD_COLS);
+    lcd.write(' ');
+    lcd.createChar(slot, getCellBitmap(batch * BATCH_SIZE + slot));
+    lcd.setCursor((firstCell + slot) % LCD_COLS, (firstCell + slot) / LCD_COLS);
+    lcd.write(slot);
   }
 
   // Every 8-cell batch is one contiguous half-row on the 16x2 LCD.
-  int firstCell = batch * BATCH_SIZE;
-  lcd.setCursor(firstCell % LCD_COLS, firstCell / LCD_COLS);
-  for (uint8_t slot = 0; slot < BATCH_SIZE; ++slot)
-    lcd.write(slot);
 }
 
 // ============================================================
@@ -128,10 +123,6 @@ void initLCD() {
   if (status != 0) {
 
     Serial.println("LCD initialization failed!");
-
-    while (true) {
-      delay(100);
-    }
   }
 
   lcd.clear();
@@ -520,57 +511,51 @@ void updateGame() {
 
   readInput();
 
-  if (millis() - last_update > dt) {
+  if (millis() - last_update > ((long_pressed)?(dt/5): dt)) {
     last_update = millis();
 
-    int no_of_moves = 1;
     if (control_reverse[proposed_dir] == dir) {
       proposed_dir = dir;
     } else {
-      if (long_pressed)
-        no_of_moves = 5;
       dir = proposed_dir;
     }
 
     acknowledgeInput();
+    coord next = { directions[dir].first + snake.back().first - 1, directions[dir].second + snake.back().second - 1 };
 
-    for (int i = 0; i < no_of_moves; i++) {
-
-      coord next = { directions[dir].first + snake.back().first - 1, directions[dir].second + snake.back().second - 1 };
-
-      if (next.first >= SCREEN_WIDTH || next.second >= SCREEN_HEIGHT) {
-        next.first++;
-        next.second++;
-        next.first = (SCREEN_WIDTH + next.first - 1) % SCREEN_WIDTH;
-        next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
-      }
-      if (food_space.size() == 0) {
-        win();
-        gameSetup();
-        return;
-      }
-      if (indices[next.first][next.second] == -1 && !(next == snake.front())) {
-        if (wait_on_gameover) {
-          pause_flicker = true;
-          pause(1500);
-          wait_on_gameover = false;
-        } else {
-          gameOver();
-          gameSetup();
-        }
-        return;
-      } else if (next == food) {
-        addtoSnake(next.first, next.second);
-        if (!spawnFood()) {
-          pause_flicker = true;
-          pause(3000);
-        }
-        score++;
-      } else {
-        removefromSnake();
-        addtoSnake(next.first, next.second);
-      }
+    if (next.first >= SCREEN_WIDTH || next.second >= SCREEN_HEIGHT) {
+      next.first++;
+      next.second++;
+      next.first = (SCREEN_WIDTH + next.first - 1) % SCREEN_WIDTH;
+      next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
     }
+    if (food_space.size() == 0) {
+      win();
+      gameSetup();
+      return;
+    }
+    if (indices[next.first][next.second] == -1 && !(next == snake.front())) {
+      if (wait_on_gameover) {
+        pause_flicker = true;
+        pause(1500);
+        wait_on_gameover = false;
+      } else {
+        gameOver();
+        gameSetup();
+      }
+      return;
+    } else if (next == food) {
+      addtoSnake(next.first, next.second);
+      if (!spawnFood()) {
+        pause_flicker = true;
+        pause(3000);
+      }
+      score++;
+    } else {
+      removefromSnake();
+      addtoSnake(next.first, next.second);
+    }
+
   }
 }
 
@@ -585,7 +570,6 @@ void updateGame() {
 // ============================================================
 
 void setup() {
-
   for (int i : game_controls)
     pinMode(i, INPUT_PULLUP);
 
@@ -605,12 +589,9 @@ void setup() {
 // ============================================================
 
 void loop() {
-  //Serial.println("Game Running");
   updateGame();
-  unsigned long now = millis();
-  if (now - previousBatchTime >= BATCH_INTERVAL) {
-    //Serial.println(freeMemory());
-    previousBatchTime = now;
+  if (millis() - last_render >= BATCH_INTERVAL) {
+    last_render = millis();
     renderBatch(currentBatch);
     currentBatch = (currentBatch + 1) % BATCH_COUNT;
   }
