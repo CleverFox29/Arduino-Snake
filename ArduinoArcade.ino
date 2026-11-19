@@ -308,9 +308,9 @@ void readInput() {
     if (-1 != raw_input) {
       last_input_found = millis();
       raw_input = -1;
-      long_pressed = false;
-      long_press_count = 0;
     }
+    long_pressed = false;
+    long_press_count = 0;
   }
 }
 bool pause_flicker = false;
@@ -499,7 +499,7 @@ bool spawnFood() {
 
 void updateGame() {
   if (millis() - last_pause <= pause_duration) {
-    if(millis() - last_backlight_change < 50 || !pause_flicker) return;
+    if (millis() - last_backlight_change < 50 || !pause_flicker) return;
     last_backlight_change = millis();
     if (backlight) {
       lcd.noBacklight();
@@ -561,7 +561,7 @@ void updateGame() {
         return;
       } else if (next == food) {
         addtoSnake(next.first, next.second);
-        if (!spawnFood()){
+        if (!spawnFood()) {
           pause_flicker = true;
           pause(3000);
         }
@@ -599,7 +599,6 @@ void setup() {
   pause_flicker = false;
   gameSplash();
   gameSetup();
-  
 }
 // ============================================================
 // MAIN LOOP
