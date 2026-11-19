@@ -26,7 +26,7 @@ hd44780_I2Cexp lcd;
 #define BATCH_SIZE 8
 #define BATCH_COUNT 4
 
-#define BATCH_INTERVAL 120
+#define BATCH_INTERVAL 80
 
 // ============================================================
 // FRAMEBUFFER
@@ -40,7 +40,7 @@ uint8_t framebuffer[SCREEN_HEIGHT][SCREEN_WIDTH];
 
 unsigned long previousBatchTime = 0;
 uint8_t currentBatch = 0;
-
+bool backlight = true;
 // ============================================================
 // PIXEL OPERATIONS
 // ============================================================
@@ -134,7 +134,6 @@ void initLCD() {
     }
   }
 
-  //lcd.backlight();
   lcd.clear();
 }
 
@@ -246,34 +245,82 @@ struct pair {
 //**************************************************************
 //Game code
 using coord = pair;
-int last_pause = 0;
-bool wait_on_gameover = 1;
+bool wait_on_gameover;
+unsigned long last_pause;
+unsigned long last_read;
+unsigned long last_update;
+unsigned long last_input_found;
+unsigned long pause_duration;
 
-int pause_duration = 0;
+const unsigned long dt = 240;
+const unsigned long button_debounce = 24;
 
-unsigned long last_update = 0;
-int dt = 240;
+coord food;
 
-coord food = { 16, 8 };
-int dir = 2;
+uint8_t dir;
+uint8_t proposed_dir;
 coord directions[] = { { 1, 0 }, { 1, 2 }, { 0, 1 }, { 2, 1 } };
+
 // UP DOWN LEFT RIGHT
 const int game_controls[] = { 2, 3, 4, 5 };
 const int control_reverse[] = { 1, 0, 3, 2 };
 
-Queue<coord> snake;
 
+
+Queue<coord> snake;
+int16_t indices[SCREEN_WIDTH][SCREEN_HEIGHT];
+PixelVector<coord> food_space;
+
+bool input_dirty = false;
+uint16_t score = 0;
+int raw_input;
+bool long_pressed;
+uint8_t long_press_count;
+unsigned long last_backlight_change;
+
+void readInput() {
+
+  bool input = false;
+  for (int i = 0; i < 4; i++) {
+    if (digitalRead(game_controls[i]) == LOW) {
+      if (i != raw_input) {
+        last_input_found = millis();
+        raw_input = i;
+      }
+      if (millis() - last_input_found > button_debounce && raw_input != -1) {
+        if (proposed_dir == raw_input)
+          if (long_press_count < 3)
+            long_press_count++;
+          else
+            long_pressed = true;
+        else {
+          long_press_count = 0;
+          long_pressed = false;
+          proposed_dir = raw_input;
+        }
+        raw_input = -1;
+        input_dirty = true;
+      }
+      input = true;
+    }
+  }
+  if (!input) {
+    if (-1 != raw_input) {
+      last_input_found = millis();
+      raw_input = -1;
+      long_pressed = false;
+      long_press_count = 0;
+    }
+  }
+}
+bool pause_flicker = false;
+void acknowledgeInput() {
+  input_dirty = false;
+}
 void pause(int t) {
   last_pause = millis();
   pause_duration = t;
 }
-
-int16_t indices[SCREEN_WIDTH][SCREEN_HEIGHT];
-PixelVector<coord> food_space;
-int proposed_dir = 2;
-
-int score = 0;
-
 void gameSetup() {
   score = 0;
   lcd.clear();
@@ -289,6 +336,7 @@ void gameSetup() {
     }
   }
   wait_on_gameover = true;
+  pause_flicker = false;
 
   addtoSnake(53, 8);
   addtoSnake(52, 8);
@@ -297,7 +345,11 @@ void gameSetup() {
   spawnFood();
   dir = 2;
   proposed_dir = dir;
+  raw_input = -1;
+  long_pressed = false;
+  long_press_count = 0;
   last_update = millis();
+
   pause(1000);
 }
 
@@ -394,21 +446,21 @@ void win() {
     lcd.print(scr);
     lastdelay = millis();
     while (millis() - lastdelay <= 1000) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+      readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
     lcd.clear();
     lastdelay = millis();
     while (millis() - lastdelay <= 300) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+      readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
   }
@@ -446,49 +498,78 @@ bool spawnFood() {
 }
 
 void updateGame() {
-  if (millis() - last_pause <= pause_duration) return;
-  for (int i = 0; i < 4; i++)
-    if (digitalRead(game_controls[i]) == LOW)
-      proposed_dir = i;
+  if (millis() - last_pause <= pause_duration) {
+    if(millis() - last_backlight_change < 50 || !pause_flicker) return;
+    last_backlight_change = millis();
+    if (backlight) {
+      lcd.noBacklight();
+      backlight = false;
+    } else {
+
+      backlight = true;
+      lcd.backlight();
+    }
+    return;
+  }
+  pause_flicker = false;
+  if (!backlight) {
+    backlight = true;
+    lcd.backlight();
+  }
+
+
+  readInput();
 
   if (millis() - last_update > dt) {
     last_update = millis();
 
+    int no_of_moves = 1;
     if (control_reverse[proposed_dir] == dir) {
       proposed_dir = dir;
     } else {
+      if (long_pressed)
+        no_of_moves = 5;
       dir = proposed_dir;
     }
 
-    coord next = { directions[dir].first + snake.back().first - 1, directions[dir].second + snake.back().second - 1 };
+    acknowledgeInput();
 
-    if (next.first >= SCREEN_WIDTH || next.second >= SCREEN_HEIGHT) {
-      next.first++;
-      next.second++;
-      next.first = (SCREEN_WIDTH + next.first - 1) % SCREEN_WIDTH;
-      next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
-    }
-    if (food_space.size() == 0) {
-      win();
-      gameSetup();
-      return;
-    }
-    if (indices[next.first][next.second] == -1 && !(next == snake.front())) {
-      if (wait_on_gameover) {
-        pause(1500);
-        wait_on_gameover = false;
-      } else {
-        gameOver();
-        gameSetup();
+    for (int i = 0; i < no_of_moves; i++) {
+
+      coord next = { directions[dir].first + snake.back().first - 1, directions[dir].second + snake.back().second - 1 };
+
+      if (next.first >= SCREEN_WIDTH || next.second >= SCREEN_HEIGHT) {
+        next.first++;
+        next.second++;
+        next.first = (SCREEN_WIDTH + next.first - 1) % SCREEN_WIDTH;
+        next.second = (SCREEN_HEIGHT + next.second - 1) % SCREEN_HEIGHT;
       }
-    } else if (next == food) {
-      addtoSnake(next.first, next.second);
-      if (!spawnFood())
-        pause(3000);
-      score++;
-    } else {
-      removefromSnake();
-      addtoSnake(next.first, next.second);
+      if (food_space.size() == 0) {
+        win();
+        gameSetup();
+        return;
+      }
+      if (indices[next.first][next.second] == -1 && !(next == snake.front())) {
+        if (wait_on_gameover) {
+          pause_flicker = true;
+          pause(1500);
+          wait_on_gameover = false;
+        } else {
+          gameOver();
+          gameSetup();
+        }
+        return;
+      } else if (next == food) {
+        addtoSnake(next.first, next.second);
+        if (!spawnFood()){
+          pause_flicker = true;
+          pause(3000);
+        }
+        score++;
+      } else {
+        removefromSnake();
+        addtoSnake(next.first, next.second);
+      }
     }
   }
 }
@@ -512,8 +593,13 @@ void setup() {
 
   initLCD();
   clearPixels();
+  lcd.backlight();
+  backlight = true;
+  last_backlight_change = millis();
+  pause_flicker = false;
   gameSplash();
   gameSetup();
+  
 }
 // ============================================================
 // MAIN LOOP
