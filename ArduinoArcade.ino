@@ -387,7 +387,7 @@ void gameOver() {
 
 void gameSplash() {
   char x[] = "SNAKE";
-  char scr[] = "GAME!";
+  char scr[] = "XENIA";
   int space_x = (LCD_COLS - strlen(x) + 1) / 2;
   int space_scr = (LCD_COLS - strlen(scr) + 1) / 2;
 
