@@ -514,7 +514,7 @@ void updateGame() {
 
   readInput();
 
-  if (millis() - last_update > ((long_pressed)?(dt/5): dt)) {
+  if (millis() - last_update > ((long_pressed)?(dt/6): dt)) {
     last_update = millis();
 
     if (control_reverse[proposed_dir] == dir) {
