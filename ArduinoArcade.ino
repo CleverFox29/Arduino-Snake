@@ -27,14 +27,14 @@ LiquidCrystal lcd(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
 #define BATCH_SIZE 8
 #define BATCH_COUNT 4
 
-#define BATCH_INTERVAL 25
+#define BATCH_INTERVAL 0
 
 // ============================================================
 // FRAMEBUFFER
 // ============================================================
 
 
-uint8_t char_buffer[LCD_COLS][LCD_ROWS][CELL_HEIGHT];
+uint8_t frame_buffer[LCD_COLS][LCD_ROWS][CELL_HEIGHT];
 
 // ============================================================
 // RENDERER STATE
@@ -48,7 +48,7 @@ bool backlight_state = true;
 // ============================================================
 
 void clearPixels() {
-  memset(char_buffer, 0, sizeof(char_buffer));
+  memset(frame_buffer, 0, sizeof(frame_buffer));
 }
 
 void setPixel(int x, int y, bool state = true) {
@@ -63,9 +63,9 @@ void setPixel(int x, int y, bool state = true) {
   uint8_t y_offset = y % CELL_HEIGHT;
   uint8_t mask = 1 << (CELL_WIDTH - 1 - x_offset);
   if (state)
-    char_buffer[charX][charY][y_offset] |= mask;
+    frame_buffer[charX][charY][y_offset] |= mask;
   else
-    char_buffer[charX][charY][y_offset] &= ~mask;
+    frame_buffer[charX][charY][y_offset] &= ~mask;
 }
 
 
@@ -79,7 +79,7 @@ void setPixel(int x, int y, bool state = true) {
 uint8_t* getCellBitmap(int cell) {
   int cellX = cell % LCD_COLS;
   int cellY = cell / LCD_COLS;
-  return char_buffer[cellX][cellY];
+  return frame_buffer[cellX][cellY];
 }
 
 // ============================================================
@@ -246,8 +246,8 @@ unsigned long last_update;
 unsigned long last_input_found;
 unsigned long pause_duration;
 
-const unsigned long dt = 240;
-const unsigned long button_debounce = 24;
+const unsigned long dt = 300;
+const unsigned long button_debounce = dt/ 10;
 
 coord food;
 
