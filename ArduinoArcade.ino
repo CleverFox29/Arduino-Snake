@@ -247,7 +247,7 @@ unsigned long last_input_found;
 unsigned long pause_duration;
 
 const unsigned long dt = 300;
-const unsigned long button_debounce = dt/ 10;
+const unsigned long button_debounce = dt/ 5;
 
 coord food;
 
@@ -332,10 +332,9 @@ void gameSetup() {
   wait_on_gameover = true;
   pause_flicker = false;
 
-  addtoSnake(53, 8);
-  addtoSnake(52, 8);
-  addtoSnake(51, 8);
-  addtoSnake(50, 8);
+  for(int i = 53; i > 49 ; --i){
+    addtoSnake(i, (SCREEN_HEIGHT +1)/2);
+  }
   spawnFood();
   dir = 2;
   proposed_dir = dir;
@@ -343,7 +342,7 @@ void gameSetup() {
   long_pressed = false;
   long_press_count = 0;
   last_update = millis();
-
+  gameSplash();
   pause(1000);
 }
 
@@ -365,21 +364,21 @@ void gameOver() {
     lcd.print(scr);
     lastdelay = millis();
     while (millis() - lastdelay <= 1000) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+       readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
     lcd.clear();
     lastdelay = millis();
     while (millis() - lastdelay <= 300) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+       readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
   }
@@ -402,21 +401,21 @@ void gameSplash() {
     lcd.print(scr);
     lastdelay = millis();
     while (millis() - lastdelay <= 1000) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+      readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
     lcd.clear();
     lastdelay = millis();
     while (millis() - lastdelay <= 300) {
-      for (int i : game_controls) {
-        if (digitalRead(i) == LOW) {
-          lcd.clear();
-          return;
-        }
+      readInput();
+      if (input_dirty) {
+        acknowledgeInput();
+        lcd.clear();
+        return;
       }
     }
   }
@@ -585,7 +584,6 @@ void setup() {
   backlight_state = true;
   last_backlight_change = millis();
   pause_flicker = false;
-  gameSplash();
   gameSetup();
 }
 // ============================================================
